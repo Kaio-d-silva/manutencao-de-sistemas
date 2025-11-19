@@ -1,48 +1,43 @@
-import { Controller, HttpRequest, HttpResponse } from '../../protocols';
-import { LoginService } from '../../service/login-service';
+import { unAuthorizedError } from "../../errors/unauthorized-error";
+import {
+  notFound,
+  ok,
+  serverError,
+  unAuthorized,
+} from "../../helpers/http-helper";
+import { Controller, HttpRequest, HttpResponse } from "../../protocols";
+import { LoginService } from "../../service/login-service";
+import { LoginDTO } from "../../types";
 
 export class LoginController implements Controller {
+  private readonly loginService: LoginService;
+
+  public constructor(loginService: LoginService) {
+    this.loginService = loginService;
+  }
+
   async handle(httpRequest: HttpRequest): Promise<HttpResponse> {
     try {
-      const { email, senha } = httpRequest.body;
-
-      const loginService = new LoginService();
-
-      const response = await loginService.login({ email, senha });
-
+      const { email, senha }: LoginDTO = httpRequest.body;
+      const response = await this.loginService.login({ email, senha });
       if (!response) {
-        return {
-          statusCode: 401,
-          body: { message: 'Credenciais inválidas' },
-        };
+        return unAuthorized(new unAuthorizedError());
       }
-
-      const perfil = await loginService.buscarPerfilPorUserId(response);
+      const perfil = await this.loginService.buscarPerfilPorUserId(response);
       if (!perfil) {
-        return {
-          statusCode: 404,
-          body: { message: 'Usuário não encontrado, verificar cadastro.' },
-        };
+        return notFound({
+          message: "Usuário não encontrado, verificar cadastro.",
+        });
       }
       const user = perfil.user;
-
-      const { token, refreshToken } = loginService.gerarTokens(user);
-
-      // Retornar sucesso (você pode adicionar lógica para gerar tokens aqui)
-      return {
-        statusCode: 200,
-        body: {
-          message: 'Login realizado com sucesso',
-          token,
-          refreshToken,
-        },
-      };
+      const { token, refreshToken } = this.loginService.gerarTokens(user);
+      return ok({
+        message: "Login realizado com sucesso",
+        token,
+        refreshToken,
+      });
     } catch (error) {
-      console.error('Erro no login:', error);
-      return {
-        statusCode: 500,
-        body: { message: 'Erro interno do servidor' },
-      };
+      return serverError(error);
     }
   }
 }

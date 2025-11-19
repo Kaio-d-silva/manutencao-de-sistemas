@@ -1,35 +1,15 @@
-import Prato from "../../models/prato-model";
+import { created, serverError } from "../../helpers/http-helper";
 import { Controller, HttpRequest, HttpResponse } from "../../protocols";
+import { PratoService } from "../../service/prato-service";
 
 export class CriarPratoController implements Controller {
-    async handle(httpRequest: HttpRequest): Promise<HttpResponse> {
-
-        try {
-            const { nome, cozinha, descricao_resumida, descricao_detalhada, imagem, valor } = httpRequest.body;
-        
-            const novoPrato = {
-                nome,
-                cozinha,
-                descricao_resumida,
-                descricao_detalhada,
-                imagem,
-                valor
-            };
-    
-            await Prato.create(novoPrato);
-
-            const pratoSalvo = await Prato.findOne({ where: { nome } });
-        
-            return {
-            statusCode: 201,
-            body: pratoSalvo
-            };
-        } catch (error: any) {
-            return {
-                statusCode: 500,
-                body: { error: error.message }
-            };
-            
-        }
+  async handle(httpRequest: HttpRequest): Promise<HttpResponse> {
+    try {
+      const pratoService = new PratoService();
+      const pratoCriado = await pratoService.criarPrato(httpRequest.body);
+      return created(pratoCriado);
+    } catch (error: any) {
+      return serverError(error);
     }
+  }
 }

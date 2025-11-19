@@ -1,13 +1,17 @@
-import { ENV } from "../config/env";
 import sequelize from "../database";
 import { Role } from "../enums/role";
+import { Encrypter } from "../interfaces";
 import Cliente from "../models/cliente-model";
 import Funcionario from "../models/funcionario-model";
 import Gerente from "../models/gerente-model";
 import User from "../models/user-model";
-import bcrypt from "bcrypt";
+import { CreateUserDTO, ResponseCreateUserDto } from "../types";
 
 export class UsuarioService {
+  private readonly encrypter: Encrypter;
+  public constructor(encrypter: Encrypter) {
+    this.encrypter = encrypter;
+  }
   async deletarUsuario(id: number): Promise<boolean> {
     const result = sequelize.transaction(async (t) => {
       const perfil = await this.__buscarPerfilPorUserId(id);
@@ -26,11 +30,11 @@ export class UsuarioService {
   }
 
   async buscarUsuarioPorId(id: number): Promise<User | null> {
-    return (await User.findByPk(id))?.toJSON();
+    return await User.findByPk(id);
   }
 
   async buscarPorEmail(email: string): Promise<User | null> {
-    return (await User.findOne({ where: { email } }))?.toJSON();
+    return await User.findOne({ where: { email } });
   }
 
   async buscaTodosUsuarios(): Promise<User[]> {
@@ -46,7 +50,9 @@ export class UsuarioService {
     if (!user) {
       return null;
     }
-    const senhaCriptografada = await bcrypt.hash(senha, ENV.SALT);
+    const senhaCriptografada = senha
+      ? await this.encrypter.hash(senha)
+      : user.senha;
     newUser.nome = nome || newUser.nome;
     newUser.email = email || newUser.email;
     newUser.senha = senha ? senhaCriptografada : newUser.senha;
@@ -60,9 +66,11 @@ export class UsuarioService {
     return userAtualizado.toJSON();
   }
 
-  async criarUsuario(dadosUsuario: any): Promise<any> {
+  async criarUsuario(
+    dadosUsuario: CreateUserDTO
+  ): Promise<ResponseCreateUserDto> {
     const { nome, email, senha, role } = dadosUsuario;
-    const senhaCriptografada = await bcrypt.hash(senha, ENV.SALT);
+    const senhaCriptografada = await this.encrypter.hash(senha);
 
     const usuario = await User.create({
       nome,
@@ -70,9 +78,20 @@ export class UsuarioService {
       senha: senhaCriptografada,
       role,
     });
+    await this.__criarPerfil({ userId: usuario.id, role, nome, telefone: dadosUsuario?.telefone });
+    await User.sync();
+    const usuarioCriado = await User.findByPk(usuario.id);
+    if(!usuarioCriado) {
+      throw new Error("Erro ao criar usuário");
+    }
+    return {
+      id: usuarioCriado?.id,
+      nome: usuarioCriado?.nome,
+      email: usuarioCriado.email,
+      role: usuarioCriado?.role,
+      telefone: dadosUsuario.telefone,
+    };
 
-    await this.__criarPerfil({ userId: usuario.id, role, nome });
-    return dadosUsuario;
   }
 
   async __buscarPerfilPorUserId(userId: number) {
@@ -103,15 +122,18 @@ export class UsuarioService {
     userId,
     role,
     nome,
+    telefone,
   }: {
     userId: number;
     role: string;
     nome: string;
+    telefone?: string;
   }) {
     if (role === Role.CLIENTE) {
       await Cliente.create({
         nome,
         userId,
+        telefone,
       });
     } else if (role === Role.FUNCIONARIO) {
       await Funcionario.create({

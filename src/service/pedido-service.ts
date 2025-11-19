@@ -1,21 +1,57 @@
-import PedidoModel from "../models/pedido-model";
+import { BcryptAdapter } from "@/adapters/bcrypt-adapter";
+import Cliente from "@/models/cliente-model";
 import { StatusPedido } from "../enums/status-pedido";
-import { CreatePedidoDTO, UpdatePedidoDTO, PedidoItemDTO } from "../interfaces";
+import PedidoModel from "../models/pedido-model";
+import { CreatePedidoDTO, PedidoItemDTO, UpdatePedidoDTO } from "../types";
+import { UsuarioService } from "./usuario-service";
 
 export class PedidoService {
   async createPedido(dto: CreatePedidoDTO) {
-    if (!dto?.usuarioId || !Array.isArray(dto.itens) || !dto.itens.length) {
+    if (!Array.isArray(dto.itens) || !dto.itens.length) {
       throw new Error("Dados inválidos");
     }
     dto.itens.forEach((i) => {
       if (!i.produtoId || i.quantidade < 1 || i.precoUnitario < 0)
         throw new Error("Item inválido");
+    })
+    let cliente = await Cliente.findOne({
+      where: { telefone: dto.clienteTelefone },
     });
+    if (!cliente) {
+      const encrypter = new BcryptAdapter(12);
+      const usuarioService = new UsuarioService(encrypter);
+      const dtoCliente = await usuarioService.criarUsuario({
+        nome: `Cliente_${Date.now()}`,
+        email: `cliente_${Date.now()}@senac.dou.com`,
+        telefone: dto.clienteTelefone,
+        senha: "cliente123",
+        role: "Cliente",
+      });
+      cliente = await usuarioService.__buscarPerfilPorUserId(dtoCliente.id) as Cliente;
+    }
+    if (!cliente) {
+      throw new Error("Erro ao criar cliente");
+    }
+    const pedidoCod = `PED-${Date.now()}`;
     const total = this.__calcularTotal(dto.itens);
-    const created = await (PedidoModel as any).create({
-      ...dto,
-      total,
-      status: StatusPedido.CRIADO,
+    const created = dto.itens.forEach(async (pedidoItem) => {
+      if (pedidoItem.quantidade < 1) {
+        throw new Error("Quantidade do item deve ser pelo menos 1");
+      }
+      const novoPedido = {
+        cliente_nome: cliente?.nome ? cliente.nome : "Cliente",
+        cliente_endereco: cliente?.endereco
+          ? cliente.endereco
+          : "Endereço não informado",
+        cliente_telefone: cliente?.telefone || dto.clienteTelefone,
+        prato_id: pedidoItem.produtoId,
+        quantidade: pedidoItem.quantidade,
+        codigo: pedidoCod,
+        userId: cliente.userId,
+        total: total,
+        status: StatusPedido.CRIADO,
+      };
+      return await (PedidoModel as any).create(novoPedido);
     });
     return created;
   }
